@@ -8,6 +8,10 @@ dependencies = [
     "datasets>=4.4.1",
     "modal>=1.2.4",
     "pandas>=2.3.3",
+    "setuptools>=80.9.0",
     "torch==2.2.2",
+    "transformers>=4.57.3",
+    "trl>=0.25.1",
+    "typer>=0.20.0",
     "unsloth>=2024.8",
 ]

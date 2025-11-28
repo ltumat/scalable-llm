@@ -1,11 +1,12 @@
 from typing import Any
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from datasets import load_dataset, Dataset
 from unsloth import FastLanguageModel
-from trl import SFTTrainer
-from transformers import TrainingArguments, DataCollatorForSeq2Seq
+from trl import SFTTrainer, SFTConfig
+from transformers import TrainingArguments, DataCollatorForSeq2Seq, EarlyStoppingCallback
 from unsloth import is_bfloat16_supported
 from unsloth.chat_templates import train_on_responses_only
 
@@ -74,16 +75,17 @@ def get_model_and_tokenizer(config: FinetuneConfig) -> tuple[FastLanguageModel, 
 
 
 def finetune_model(config: FinetuneConfig, model: FastLanguageModel, tokenizer: Any, dataset: Dataset) -> None:
+    Path(config.output_dir).mkdir(parents=True, exist_ok=True)
     trainer = SFTTrainer(
-        model = model,
-        tokenizer = tokenizer,
-        train_dataset = dataset,
-        dataset_text_field = "text",
+        model=model,
+        tokenizer=tokenizer,
+        train_dataset=dataset,
+        dataset_text_field="text",
         max_seq_length=config.max_seq_length,
         data_collator = DataCollatorForSeq2Seq(tokenizer = tokenizer),
         dataset_num_proc=2,
         packing = False,
-        args = TrainingArguments(
+        args = SFTConfig(
             per_device_train_batch_size=config.per_device_train_batch_size,
             gradient_accumulation_steps=config.gradient_accumulation_steps,
             warmup_steps=config.warmup_steps,
@@ -98,15 +100,30 @@ def finetune_model(config: FinetuneConfig, model: FastLanguageModel, tokenizer: 
             lr_scheduler_type=config.lr_scheduler_type,
             seed=config.seed,
             output_dir=config.output_dir,
-            report_to=config.report_to, # Use this for WandB etc
+            report_to=config.report_to,
+            save_strategy="steps",
+            save_steps=100,
+            save_total_limit=3,
+            # metric_for_best_model = "eval_loss",
         ),
     )
 
-    trainer = train_on_responses_only(
-        trainer,
-        instruction_part = "<|start_header_id|>user<|end_header_id|>\n\n",
-        response_part = "<|start_header_id|>assistant<|end_header_id|>\n\n",
+    # trainer = train_on_responses_only(
+    #     trainer,
+    #     instruction_part = "<|start_header_id|>user<|end_header_id|>\n\n",
+    #     response_part = "<|start_header_id|>assistant<|end_header_id|>\n\n",
+    # )
+
+    early_stopping_callback = EarlyStoppingCallback(
+        early_stopping_patience = 10,
+        early_stopping_threshold = 0.0,
     )
+
+    trainer.add_callback(early_stopping_callback)
+
+    # not sure we need early stopping with max_steps, but just in case
+
+    trainer.train(resume_from_checkpoint=True)
     
 
 if __name__ == "__main__":
@@ -134,5 +151,6 @@ if __name__ == "__main__":
     )
 
     dataset = get_train_data()
-    print(type(dataset))
+
     model, tokenizer = get_model_and_tokenizer(model_config)
+    finetune_model(config=model_config, model=model, tokenizer=tokenizer, dataset=dataset)
