@@ -1,59 +1,44 @@
-from typing import Any
-
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, List
 
-from datasets import load_dataset, Dataset
-from unsloth import FastLanguageModel
-from trl import SFTTrainer, SFTConfig
-from transformers import TrainingArguments, DataCollatorForSeq2Seq, EarlyStoppingCallback
-from unsloth import is_bfloat16_supported
-from unsloth.chat_templates import train_on_responses_only
+import torch
+from datasets import Dataset, load_dataset
+from peft import LoraConfig
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+)
+from trl import SFTConfig, SFTTrainer
+
+
+def _bf16_supported() -> bool:
+    return torch.cuda.is_available() and torch.cuda.is_bf16_supported()
 
 
 @dataclass
 class FinetuneConfig:
-    model_name: str
-    rank: int
-    lora_alpha: int
-    lora_dropout: float
-    max_seq_length: int
-    bias: str = "none"
-    dtype: Any = None
-    load_in_4bit: bool = True
-    use_rank_stabilized_lora: bool = False
-    seed: int = 42
-    per_device_train_batch_size: int = 2
-    gradient_accumulation_steps: int = 4
-    warmup_steps: int = 5
-    max_steps: int = 60
+    model_name: str = "Qwen/Qwen3-4B-Instruct-2507"
+    dataset_name: str = "mlabonne/FineTome-100k"
+    dataset_split: str = "train"
+    max_seq_length: int = 1024
+    per_device_train_batch_size: int = 1
+    gradient_accumulation_steps: int = 8
+    warmup_steps: int = 50
     learning_rate: float = 2e-4
-    fp16: bool = field(default_factory=lambda: not is_bfloat16_supported())
-    bf16: bool = field(default_factory=is_bfloat16_supported)
-    logging_steps: int = 1
-    optim: str = "adamw_8bit"
     weight_decay: float = 0.01
-    lr_scheduler_type: str = "linear"
+    num_train_epochs: int = 1
+    max_steps: int = 200
+    logging_steps: int = 5
+    save_steps: int = 100
     output_dir: str = "outputs"
-    report_to: str = "none"
-
-
-def get_train_data() -> Dataset:
-    return load_dataset("mlabonne/FineTome-100k", split="train")
-
-
-def get_model_and_tokenizer(config: FinetuneConfig) -> tuple[FastLanguageModel, Any]:
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=config.model_name,
-        max_seq_length=config.max_seq_length,
-        dtype=config.dtype,
-        load_in_4bit=config.load_in_4bit,
-    )
-
-    model = FastLanguageModel.get_peft_model(
-        model=model,
-        r=config.rank,
-        target_modules=[
+    seed: int = 42
+    torch_dtype: Any = field(default_factory=lambda: torch.bfloat16 if _bf16_supported() else torch.float16)
+    lora_r: int = 16
+    lora_alpha: int = 32
+    lora_dropout: float = 0.05
+    target_modules: List[str] = field(
+        default_factory=lambda: [
             "q_proj",
             "k_proj",
             "v_proj",
@@ -61,96 +46,107 @@ def get_model_and_tokenizer(config: FinetuneConfig) -> tuple[FastLanguageModel, 
             "gate_proj",
             "up_proj",
             "down_proj",
-        ],
+        ]
+    )
+
+
+def get_train_data(config: FinetuneConfig) -> Dataset:
+    ds = load_dataset(config.dataset_name, split=config.dataset_split)
+
+    def build_text(example):
+        conv = example.get("conversations", [])
+        parts = []
+        for turn in conv:
+            content = turn.get("value")
+            if not content:
+                continue
+            role = turn.get("from", "").lower()
+            prefix = "User" if role in ("human", "user") else "Assistant"
+            parts.append(f"{prefix}: {content}")
+        example["text"] = "\n\n".join(parts)
+        return example
+
+    ds = ds.map(build_text, remove_columns=["conversations"])  # keep original cols
+    ds = ds.filter(lambda x: isinstance(x.get("text"), str) and len(x["text"].strip()) > 0)
+    return ds
+
+
+def get_tokenizer(config: FinetuneConfig):
+    tokenizer = AutoTokenizer.from_pretrained(
+        config.model_name,
+        use_fast=False,
+        trust_remote_code=True,
+    )
+    tokenizer.padding_side = "right"
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.model_max_length = config.max_seq_length
+    return tokenizer
+
+
+def get_model(config: FinetuneConfig):
+    return AutoModelForCausalLM.from_pretrained(
+        config.model_name,
+        dtype=config.torch_dtype,
+        device_map="auto",
+        trust_remote_code=True,
+    )
+
+
+def build_trainer(config: FinetuneConfig, model, tokenizer, dataset: Dataset) -> SFTTrainer:
+    peft_config = LoraConfig(
+        r=config.lora_r,
         lora_alpha=config.lora_alpha,
         lora_dropout=config.lora_dropout,
-        bias=config.bias,
-        use_gradient_checkpointing="unsloth",
-        random_state=config.seed,
-        use_rslora=config.use_rank_stabilized_lora,
-        loftq_config=None,
+        target_modules=config.target_modules,
+        bias="none",
+        task_type="CAUSAL_LM",
     )
 
-    return model, tokenizer
-
-
-def finetune_model(config: FinetuneConfig, model: FastLanguageModel, tokenizer: Any, dataset: Dataset) -> None:
-    Path(config.output_dir).mkdir(parents=True, exist_ok=True)
-    trainer = SFTTrainer(
-        model=model,
-        tokenizer=tokenizer,
-        train_dataset=dataset,
+    training_config = SFTConfig(
         dataset_text_field="text",
-        max_seq_length=config.max_seq_length,
-        data_collator = DataCollatorForSeq2Seq(tokenizer = tokenizer),
+        max_length=config.max_seq_length,
+        per_device_train_batch_size=config.per_device_train_batch_size,
+        gradient_accumulation_steps=config.gradient_accumulation_steps,
+        warmup_steps=config.warmup_steps,
+        learning_rate=config.learning_rate,
+        weight_decay=config.weight_decay,
+        num_train_epochs=config.num_train_epochs,
+        max_steps=config.max_steps,
+        logging_steps=config.logging_steps,
+        save_steps=config.save_steps,
+        save_total_limit=3,
+        output_dir=config.output_dir,
+        bf16=config.torch_dtype == torch.bfloat16,
+        fp16=config.torch_dtype == torch.float16,
+        seed=config.seed,
+        packing=False,
+        report_to="none",
         dataset_num_proc=2,
-        packing = False,
-        args = SFTConfig(
-            per_device_train_batch_size=config.per_device_train_batch_size,
-            gradient_accumulation_steps=config.gradient_accumulation_steps,
-            warmup_steps=config.warmup_steps,
-            # num_train_epochs = 1, # Set this for 1 full training run.
-            max_steps=config.max_steps,
-            learning_rate=config.learning_rate,
-            fp16=config.fp16,
-            bf16=config.bf16,
-            logging_steps=config.logging_steps,
-            optim=config.optim,
-            weight_decay=config.weight_decay,
-            lr_scheduler_type=config.lr_scheduler_type,
-            seed=config.seed,
-            output_dir=config.output_dir,
-            report_to=config.report_to,
-            save_strategy="steps",
-            save_steps=100,
-            save_total_limit=3,
-            # metric_for_best_model = "eval_loss",
-        ),
     )
 
-    # trainer = train_on_responses_only(
-    #     trainer,
-    #     instruction_part = "<|start_header_id|>user<|end_header_id|>\n\n",
-    #     response_part = "<|start_header_id|>assistant<|end_header_id|>\n\n",
-    # )
-
-    early_stopping_callback = EarlyStoppingCallback(
-        early_stopping_patience = 10,
-        early_stopping_threshold = 0.0,
+    return SFTTrainer(
+        model=model,
+        args=training_config,
+        train_dataset=dataset,
+        processing_class=tokenizer,
+        peft_config=peft_config,
     )
 
-    trainer.add_callback(early_stopping_callback)
 
-    # not sure we need early stopping with max_steps, but just in case
+def finetune_model(config: FinetuneConfig) -> None:
+    Path(config.output_dir).mkdir(parents=True, exist_ok=True)
+    dataset = get_train_data(config)
 
-    trainer.train(resume_from_checkpoint=True)
-    
+    tokenizer = get_tokenizer(config)
+    model = get_model(config)
+
+    trainer = build_trainer(config, model, tokenizer, dataset)
+    trainer.train()
+
+    trainer.save_model(config.output_dir)
+    tokenizer.save_pretrained(config.output_dir)
+
 
 if __name__ == "__main__":
-    model_config = FinetuneConfig(
-        model_name="unsloth/Llama-3.2-1B-bnb-4bit",
-        rank=16,
-        lora_alpha=16,
-        lora_dropout=0.0,
-        max_seq_length=2048,
-        dtype=None,
-        load_in_4bit=True,
-        per_device_train_batch_size=2,
-        gradient_accumulation_steps=4,
-        warmup_steps=5,
-        max_steps=60,
-        learning_rate=2e-4,
-        fp16=not is_bfloat16_supported(),
-        bf16=is_bfloat16_supported(),
-        logging_steps=1,
-        optim="adamw_8bit",
-        weight_decay=0.01,
-        lr_scheduler_type="linear",
-        output_dir="outputs",
-        report_to="none",
-    )
-
-    dataset = get_train_data()
-
-    model, tokenizer = get_model_and_tokenizer(model_config)
-    finetune_model(config=model_config, model=model, tokenizer=tokenizer, dataset=dataset)
+    finetune_model(FinetuneConfig())
