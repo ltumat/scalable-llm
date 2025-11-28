@@ -58,3 +58,38 @@ def main():
 @app.local_entrypoint()
 def run():
     main.remote()
+
+
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("huggingface-secret")],
+    volumes={"/outputs": vol},
+)
+def push_to_hub():
+    import os
+    from huggingface_hub import HfApi
+
+    token = os.environ["HF_TOKEN"]
+    api = HfApi(token=token)
+    user = api.whoami(token=token)["name"]
+    repo_id = f"{user}/Qwen3-4B-Instruct-FineTome"
+    api.create_repo(repo_id=repo_id, repo_type="model", exist_ok=True)
+
+    checkpoint_path = Path("/outputs/checkpoint-200")
+    if not checkpoint_path.exists():
+        raise FileNotFoundError(f"Checkpoint not found at {checkpoint_path}")
+
+    api.upload_folder(
+        repo_id=repo_id,
+        repo_type="model",
+        folder_path=str(checkpoint_path),
+        path_in_repo=".",
+        commit_message="Upload fine-tuned weights",
+    )
+    return repo_id
+
+
+@app.local_entrypoint()
+def push():
+    repo_id = push_to_hub.remote()
+    print(f"Uploaded to https://huggingface.co/{repo_id}")
