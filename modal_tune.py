@@ -91,12 +91,33 @@ def push_to_hub():
     token = os.environ["HF_TOKEN"]
     api = HfApi(token=token)
     user = api.whoami(token=token)["name"]
-    repo_id = f"{user}/Qwen3-4B-Instruct-FineTome"
+    # repo_id = f"{user}/Qwen3-4B-Instruct-FineTome"
+    repo_id = f"{user}/Llama-3.2-1B-Instruct-LeBron"
     api.create_repo(repo_id=repo_id, repo_type="model", exist_ok=True)
 
-    checkpoint_path = Path("/outputs/checkpoint-26100")
+    #checkpoint_path = Path("/outputs/checkpoint-26100")
+    checkpoint_path = Path("/outputs/meta-llama__Llama-3.2-1B-Instruct/checkpoint-4450")
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"Checkpoint not found at {checkpoint_path}")
+
+    source_path = "/outputs/meta-llama__Llama-3.2-1B-Instruct"
+    target_path = "meta-llama/Llama-3.2-1B-Instruct"
+
+    readme_path = checkpoint_path / "README.md"
+    if not readme_path.exists():
+        raise FileNotFoundError(f"README not found at {readme_path}")
+    readme_contents = readme_path.read_text()
+    updated_readme = readme_contents.replace(source_path, target_path)
+    if updated_readme != readme_contents:
+        readme_path.write_text(updated_readme)
+
+    adapter_config_path = checkpoint_path / "adapter_config.json"
+    if not adapter_config_path.exists():
+        raise FileNotFoundError(f"adapter_config.json not found at {adapter_config_path}")
+    adapter_config = adapter_config_path.read_text()
+    updated_adapter_config = adapter_config.replace(source_path, target_path)
+    if updated_adapter_config != adapter_config:
+        adapter_config_path.write_text(updated_adapter_config)
 
     api.upload_folder(
         repo_id=repo_id,

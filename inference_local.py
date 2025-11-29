@@ -4,8 +4,8 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
-def load_model(repo_id: str, device: str):
-    tokenizer = AutoTokenizer.from_pretrained(repo_id, trust_remote_code=True)
+def load_model(repo_id: str, device: str, token: str):
+    tokenizer = AutoTokenizer.from_pretrained(repo_id, trust_remote_code=True, token=token)
     tokenizer.padding_side = "left"
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -15,6 +15,7 @@ def load_model(repo_id: str, device: str):
         trust_remote_code=True,
         torch_dtype=torch.float16 if device == "cuda" and torch.cuda.is_available() else torch.float32,
         device_map=None,
+        token=token,
     )
     model.to(device)
     model.eval()
@@ -55,8 +56,12 @@ def chat_loop(model, tokenizer, device: str):
 def main():
     parser = argparse.ArgumentParser(description="Chat with fine-tuned Qwen model locally (CPU by default).")
     parser.add_argument(
+        "--token",
+        help="Token",
+    )
+    parser.add_argument(
         "--model",
-        default="alvaro-mazcu/Qwen3-4B-Instruct-FineTome",
+        default="alvaro-mazcu/Llama-3.2-1B-Instruct-LeBron",
         help="Hugging Face model repo id",
     )
     parser.add_argument(
@@ -67,7 +72,7 @@ def main():
     )
     args = parser.parse_args()
 
-    model, tokenizer = load_model(args.model, args.device)
+    model, tokenizer = load_model(args.model, args.device, args.token)
     chat_loop(model, tokenizer, args.device)
 
 

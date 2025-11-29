@@ -177,7 +177,7 @@ def finetune_model(config: FinetuneConfig) -> None:
 if __name__ == "__main__":
     config = FinetuneConfig(
         model_name="meta-llama/Llama-3.2-1B-Instruct",
-        dataset_name="lebron_james/lebron_interviews_cleaned.jsonl",
+        dataset_name="lebron",
         dataset_split="train",
         max_seq_length=1024,
         per_device_train_batch_size=1,
