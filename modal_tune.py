@@ -36,7 +36,7 @@ image = (
 @app.function(
     image=image,
     gpu="A100:2",
-    timeout=60 * 60 * 1,
+    timeout=60 * 60 * 3,
     volumes={"/outputs": vol},
     env={
         "NCCL_DEBUG": "WARN",
