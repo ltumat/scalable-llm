@@ -51,7 +51,14 @@ class FinetuneConfig:
 
 
 def get_train_data(config: FinetuneConfig) -> Dataset:
-    ds = load_dataset(config.dataset_name, split=config.dataset_split)
+
+    if config.dataset_name.startswith("lebron"):
+        import os
+        base_path = os.path.dirname(os.path.abspath(__file__))
+        data_path = os.path.join(base_path, "lebron_james/lebron_interviews_cleaned.jsonl")
+        ds = load_dataset("json", data_files=data_path, split="train")
+    else:
+        ds = load_dataset(config.dataset_name, split=config.dataset_split)
 
     def build_text(example):
         conv = example.get("conversations", [])

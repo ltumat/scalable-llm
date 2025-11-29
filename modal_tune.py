@@ -12,18 +12,24 @@ if APP_DIR.exists():
 app = modal.App(name="finetune-qwen")
 
 vol = modal.Volume.from_name("model-checkpoints", create_if_missing=True)
-IGNORE_PATTERNS = FilePatternMatcher(
-    ".venv/**",
-    ".git/**",
-    "**/__pycache__/**",
-    "model-checkpoints/**",
-    ".modal_cache/**",
-)
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
     .pip_install_from_pyproject("pyproject.toml")
-    .add_local_dir(".", "/app", ignore=IGNORE_PATTERNS)
+    .add_local_dir(
+        ".", 
+        "/app", 
+        ignore=[
+            ".venv", 
+            ".git", 
+            "__pycache__", 
+            "model-checkpoints", 
+            ".modal_cache",
+            "**/.venv/**",
+            "**/.git/**",
+            "**/__pycache__/**"
+        ]
+    )
 )
 
 
@@ -37,18 +43,18 @@ def main():
     from finetune import FinetuneConfig, finetune_model
 
     config = FinetuneConfig(
-        model_name="Qwen/Qwen3-4B-Instruct-2507",
-        dataset_name="mlabonne/FineTome-100k",
+        model_name="meta-llama/Llama-3.2-1B-Instruct",
+        dataset_name="lebron_james/lebron_interviews_cleaned.jsonl",
         dataset_split="train",
         max_seq_length=1024,
         per_device_train_batch_size=1,
-        gradient_accumulation_steps=8,
-        num_train_epochs=1,
+        gradient_accumulation_steps=1,
+        num_train_epochs=5,
         warmup_steps=50,
-        max_steps=200,
+        max_steps=1000000,
         learning_rate=2e-4,
         logging_steps=5,
-        save_steps=100,
+        save_steps=50,
         output_dir="/outputs",
     )
 
