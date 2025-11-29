@@ -1,13 +1,16 @@
 import os
+
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, List
 
 import torch
 from datasets import Dataset, load_dataset
-from huggingface_hub import snapshot_download
 from peft import LoraConfig
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+)
 from trl import SFTConfig, SFTTrainer
 
 
@@ -31,7 +34,6 @@ class FinetuneConfig:
     logging_steps: int = 5
     save_steps: int = 100
     output_dir: str = "outputs"
-    local_dir: str | None = None
     seed: int = 42
     gradient_checkpointing: bool = False
     gradient_checkpointing_kwargs: dict | None = field(default_factory=lambda: {"use_reentrant": False})
@@ -54,14 +56,7 @@ class FinetuneConfig:
 
 
 def get_train_data(config: FinetuneConfig) -> Dataset:
-
-    if config.dataset_name.startswith("lebron"):
-        import os
-        base_path = os.path.dirname(os.path.abspath(__file__))
-        data_path = os.path.join(base_path, "lebron_james/lebron_interviews_cleaned.jsonl")
-        ds = load_dataset("json", data_files=data_path, split="train")
-    else:
-        ds = load_dataset(config.dataset_name, split=config.dataset_split)
+    ds = load_dataset(config.dataset_name, split=config.dataset_split)
 
     def build_text(example):
         conv = example.get("conversations", [])
@@ -83,9 +78,10 @@ def get_train_data(config: FinetuneConfig) -> Dataset:
 
 def get_tokenizer(config: FinetuneConfig):
     tokenizer = AutoTokenizer.from_pretrained(
-        config.local_dir,
+        config.model_name,
         use_fast=False,
         trust_remote_code=True,
+        token = os.environ["HF_LLAMA_3_2"],
     )
     tokenizer.padding_side = "right"
     if tokenizer.pad_token is None:
@@ -96,10 +92,11 @@ def get_tokenizer(config: FinetuneConfig):
 
 def get_model(config: FinetuneConfig):
     return AutoModelForCausalLM.from_pretrained(
-        config.local_dir,
+        config.model_name,
         dtype=config.torch_dtype,
         device_map=None,
         trust_remote_code=True,
+        token = os.environ["HF_LLAMA_3_2"],
     )
 
 
@@ -149,19 +146,6 @@ def build_trainer(config: FinetuneConfig, model, tokenizer, dataset: Dataset) ->
 
 def finetune_model(config: FinetuneConfig) -> None:
     Path(config.output_dir).mkdir(parents=True, exist_ok=True)
-
-    local_folder_name = config.local_dir or config.model_name.replace("/", "__")
-    local_dir = Path(config.output_dir) / local_folder_name
-    token = os.environ.get("HF_LLAMA_3_2")
-    snapshot_download(
-        repo_id=config.model_name,
-        local_dir=str(local_dir),
-        local_dir_use_symlinks=False,
-        token=token,
-    )
-    config.local_dir = str(local_dir)
-    config.output_dir = str(local_dir)
-
     dataset = get_train_data(config)
 
     tokenizer = get_tokenizer(config)
@@ -176,18 +160,18 @@ def finetune_model(config: FinetuneConfig) -> None:
 
 if __name__ == "__main__":
     config = FinetuneConfig(
-        model_name="meta-llama/Llama-3.2-1B-Instruct",
-        dataset_name="lebron_james/lebron_interviews_cleaned.jsonl",
+        model_name="Qwen/Qwen3-4B-Instruct-2507",
+        dataset_name="mlabonne/FineTome-100k",
         dataset_split="train",
         max_seq_length=1024,
-        per_device_train_batch_size=1,
-        gradient_accumulation_steps=1,
-        num_train_epochs=5,
+        per_device_train_batch_size=2,
+        gradient_accumulation_steps=4,
+        num_train_epochs=1,
         warmup_steps=50,
-        max_steps=1000000,
+        max_steps=100000,
         learning_rate=2e-4,
-        logging_steps=5,
-        save_steps=50,
+        logging_steps=10,
+        save_steps=100,
         output_dir="/outputs",
     )
 
