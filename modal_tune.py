@@ -35,30 +35,43 @@ image = (
 
 @app.function(
     image=image,
-    gpu="L4",
-    timeout=60 * 60 * 2,
+    gpu="A100:2",
+    timeout=60 * 60 * 1,
     volumes={"/outputs": vol},
+    env={
+        "NCCL_DEBUG": "WARN",
+        "NCCL_ASYNC_ERROR_HANDLING": "1",
+    },
+    secrets=[modal.Secret.from_name("huggingface-secret")],
 )
 def main():
-    from finetune import FinetuneConfig, finetune_model
+    """
+    Launch multi-GPU training via torchrun. Each rank executes finetune.py,
+    and Hugging Face Trainer handles distributed init.
+    """
+    import os
+    import subprocess
+    import torch
 
-    config = FinetuneConfig(
-        model_name="meta-llama/Llama-3.2-1B-Instruct",
-        dataset_name="lebron_james/lebron_interviews_cleaned.jsonl",
-        dataset_split="train",
-        max_seq_length=1024,
-        per_device_train_batch_size=1,
-        gradient_accumulation_steps=1,
-        num_train_epochs=5,
-        warmup_steps=50,
-        max_steps=1000000,
-        learning_rate=2e-4,
-        logging_steps=5,
-        save_steps=50,
-        output_dir="/outputs",
-    )
+    nproc = max(1, torch.cuda.device_count())
+    if nproc == 1:
+        subprocess.run(["python", "finetune.py"], check=True)
+        return
 
-    finetune_model(config)
+    os.environ.setdefault("MASTER_ADDR", "127.0.0.1")
+    os.environ.setdefault("MASTER_PORT", "29500")
+    script_path = "/app/finetune.py"
+    cmd = [
+        "torchrun",
+        "--nproc_per_node",
+        str(nproc),
+        "--master_addr",
+        os.environ["MASTER_ADDR"],
+        "--master_port",
+        os.environ["MASTER_PORT"],
+        script_path,
+    ]
+    subprocess.run(cmd, check=True)
 
 
 @app.local_entrypoint()
@@ -81,7 +94,7 @@ def push_to_hub():
     repo_id = f"{user}/Qwen3-4B-Instruct-FineTome"
     api.create_repo(repo_id=repo_id, repo_type="model", exist_ok=True)
 
-    checkpoint_path = Path("/outputs/checkpoint-200")
+    checkpoint_path = Path("/outputs/checkpoint-26100")
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"Checkpoint not found at {checkpoint_path}")
 
