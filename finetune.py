@@ -1,3 +1,5 @@
+import os
+
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, List
@@ -33,6 +35,9 @@ class FinetuneConfig:
     save_steps: int = 100
     output_dir: str = "outputs"
     seed: int = 42
+    gradient_checkpointing: bool = False
+    gradient_checkpointing_kwargs: dict | None = field(default_factory=lambda: {"use_reentrant": False})
+    ddp_find_unused_parameters: bool | None = False
     torch_dtype: Any = field(default_factory=lambda: torch.bfloat16 if _bf16_supported() else torch.float16)
     lora_r: int = 16
     lora_alpha: int = 32
@@ -76,6 +81,7 @@ def get_tokenizer(config: FinetuneConfig):
         config.model_name,
         use_fast=False,
         trust_remote_code=True,
+        token = os.environ["HF_LLAMA_3_2"],
     )
     tokenizer.padding_side = "right"
     if tokenizer.pad_token is None:
@@ -88,8 +94,9 @@ def get_model(config: FinetuneConfig):
     return AutoModelForCausalLM.from_pretrained(
         config.model_name,
         dtype=config.torch_dtype,
-        device_map="auto",
+        device_map=None,
         trust_remote_code=True,
+        token = os.environ["HF_LLAMA_3_2"],
     )
 
 
@@ -123,6 +130,9 @@ def build_trainer(config: FinetuneConfig, model, tokenizer, dataset: Dataset) ->
         packing=False,
         report_to="none",
         dataset_num_proc=2,
+        gradient_checkpointing=config.gradient_checkpointing,
+        gradient_checkpointing_kwargs=config.gradient_checkpointing_kwargs,
+        ddp_find_unused_parameters=config.ddp_find_unused_parameters,
     )
 
     return SFTTrainer(
@@ -149,4 +159,21 @@ def finetune_model(config: FinetuneConfig) -> None:
 
 
 if __name__ == "__main__":
-    finetune_model(FinetuneConfig())
+    config = FinetuneConfig(
+        #model_name="Qwen/Qwen3-4B-Instruct-2507",
+        model_name="meta-llama/Llama-3.2-1B-Instruct",
+        dataset_name="mlabonne/FineTome-100k",
+        dataset_split="train",
+        max_seq_length=1024,
+        per_device_train_batch_size=2,
+        gradient_accumulation_steps=4,
+        num_train_epochs=1,
+        warmup_steps=50,
+        max_steps=100000,
+        learning_rate=2e-4,
+        logging_steps=10,
+        save_steps=100,
+        output_dir="/outputs",
+    )
+
+    finetune_model(config)
