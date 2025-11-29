@@ -61,7 +61,7 @@ def main():
     )
     parser.add_argument(
         "--model",
-        default="alvaro-mazcu/Llama-3.2-1B-Instruct-LeBron",
+        default="john-otis/Llama-3.2-1B-Instruct-LeBron",
         help="Hugging Face model repo id",
     )
     parser.add_argument(

@@ -96,7 +96,7 @@ def push_to_hub():
     api.create_repo(repo_id=repo_id, repo_type="model", exist_ok=True)
 
     #checkpoint_path = Path("/outputs/checkpoint-26100")
-    checkpoint_path = Path("/outputs/meta-llama__Llama-3.2-1B-Instruct/checkpoint-4450")
+    checkpoint_path = Path("/outputs/meta-llama__Llama-3.2-1B-Instruct/checkpoint-16550")
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"Checkpoint not found at {checkpoint_path}")
 
