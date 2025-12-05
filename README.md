@@ -30,6 +30,7 @@ We deployed all finetuned models in their respective HuggingFace Space using the
 - `alvaro-mazcu/Qwen3-4B-Instruct-FineTome` --> https://huggingface.co/spaces/alvaro-mazcu/Qwen3-4B-Instruct-FineTome-gradio. Takes around 40 seconds to answer!
 - `alvaro-mazcu/FIneTome-1B-Llama3` --> https://huggingface.co/spaces/alvaro-mazcu/FIneTome-1B-Llama3. Fast inference.
 - `alvaro-mazcu/Llama-3.2-1B-Instruct-LeBron` --> https://huggingface.co/spaces/alvaro-mazcu/LeBron. As the data that the model has seen is not updated, in this deployment we are getting additional context with Gemini so that the low-parameter model has extra, current information about the user's question. Interact with the tool as if you were a journalist asking random things to LeBron James, who has just played a match.
+- `john-otis/Qwen3-1.7B-Instruct-FineTome` --> https://huggingface.co/spaces/john-otis/scalable-llm. We finetuned another Qwen model (Qwen3-1.7B) on the FineTome dataset. Despite the naming, it is not the instruct version, but has instruct capabilities due to the finetuning. Here, the model has access to tool calling, namely DuckDuckGo search and even has reasoning capabilities. The web searching tool and reasoning can be toggled by the user.
 
 
 ## Datasets
