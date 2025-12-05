@@ -160,7 +160,7 @@ def finetune_model(config: FinetuneConfig) -> None:
         token=token,
     )
     config.local_dir = str(local_dir)
-    config.output_dir = str(local_dir)
+    config.output_dir = str(local_dir) + f"_{config.dataset_name.replace("/", "__")}"
 
     dataset = get_train_data(config)
 
@@ -177,17 +177,17 @@ def finetune_model(config: FinetuneConfig) -> None:
 if __name__ == "__main__":
     config = FinetuneConfig(
         model_name="meta-llama/Llama-3.2-1B-Instruct",
-        dataset_name="lebron",
+        dataset_name="mlabonne/FineTome-100k",
         dataset_split="train",
         max_seq_length=1024,
-        per_device_train_batch_size=1,
-        gradient_accumulation_steps=1,
-        num_train_epochs=5,
+        per_device_train_batch_size=16,
+        gradient_accumulation_steps=2,
+        num_train_epochs=1,
         warmup_steps=50,
-        max_steps=1000000,
+        max_steps=391,
         learning_rate=2e-4,
-        logging_steps=5,
-        save_steps=50,
+        logging_steps=10,
+        save_steps=25,
         output_dir="/outputs",
     )
 

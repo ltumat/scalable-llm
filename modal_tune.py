@@ -35,8 +35,8 @@ image = (
 
 @app.function(
     image=image,
-    gpu="A100:2",
-    timeout=60 * 60 * 3,
+    gpu="H100:8",
+    timeout=60 * 60 * 1,
     volumes={"/outputs": vol},
     env={
         "NCCL_DEBUG": "WARN",
@@ -92,15 +92,19 @@ def push_to_hub():
     api = HfApi(token=token)
     user = api.whoami(token=token)["name"]
     # repo_id = f"{user}/Qwen3-4B-Instruct-FineTome"
-    repo_id = f"{user}/Llama-3.2-1B-Instruct-LeBron"
+    # repo_id = f"{user}/Llama-3.2-1B-Instruct-LeBron"
+    repo_id = f"{user}/Llama-3.2-1B-Instruct-FineTome"
     api.create_repo(repo_id=repo_id, repo_type="model", exist_ok=True)
 
     #checkpoint_path = Path("/outputs/checkpoint-26100")
-    checkpoint_path = Path("/outputs/meta-llama__Llama-3.2-1B-Instruct/checkpoint-16550")
+    # checkpoint_path = Path("/outputs/meta-llama__Llama-3.2-1B-Instruct/checkpoint-16550")
+    checkpoint_path = Path("/outputs/meta-llama__Llama-3.2-1B-Instruct_mlabonne__FineTome-100k/checkpoint-391")
+    
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"Checkpoint not found at {checkpoint_path}")
 
     source_path = "/outputs/meta-llama__Llama-3.2-1B-Instruct"
+    # source_path = "meta-llama__Llama-3.2-1B-Instruct_mlabonne__FineTome-100k"
     target_path = "meta-llama/Llama-3.2-1B-Instruct"
 
     readme_path = checkpoint_path / "README.md"
